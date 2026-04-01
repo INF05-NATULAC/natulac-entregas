@@ -15,7 +15,7 @@
 //  CONFIGURACIÓN GLOBAL
 // ─────────────────────────────────────────────────────────────
 const CONFIG = {
-  GAS_URL: 'https://script.google.com/macros/s/TU_DEPLOYMENT_ID_AQUI/exec',
+  GAS_URL: 'https://script.google.com/macros/s/AKfycby0S7lZ9lW7PQxyKMNNCc_EhV6MdOIBsp2GKKOsgythmzvg6FxGadL8lj1Lm5d06e_Evg/exec',
   CLIENTES_CACHE_KEY: 'natulac_clientes_v1',
   SESSION_KEY: 'natulac_session_v1',
   QUEUE_KEY: 'natulac_queue_v1',      // Cola offline
