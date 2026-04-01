@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0a4f3c" />
+  <meta name="description" content="Natulac - Sistema de Despachos" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Natulac" />
+
+  <title>Natulac · Despachos</title>
+
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <!-- Bootstrap Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --natulac-dark:    #0a1f18;
+      --natulac-green:   #0a4f3c;
+      --natulac-mid:     #0e6b51;
+      --natulac-accent:  #2ec48a;
+      --natulac-light:   #e8f7f1;
+      --natulac-cream:   #f5faf8;
+      --natulac-border:  #c4e4d8;
+      --natulac-danger:  #e84545;
+      --natulac-warn:    #f5a623;
+      --radius-lg: 18px;
+      --radius-md: 12px;
+      --shadow-card: 0 4px 24px rgba(10,79,60,.12);
+      --shadow-btn:  0 2px 12px rgba(46,196,138,.35);
+      --font-head: 'Syne', sans-serif;
+      --font-body: 'DM Sans', sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--natulac-cream);
+      color: #1a2e28;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── TOAST ───────────────────────────────────────────── */
+    #toast-container {
+      position: fixed; top: 1rem; right: 1rem;
+      z-index: 9999; display: flex; flex-direction: column; gap: .5rem;
+    }
+    .toast-msg {
+      padding: .75rem 1.25rem; border-radius: var(--radius-md);
+      font-family: var(--font-body); font-size: .88rem; font-weight: 500;
+      color: #fff; animation: slideIn .3s ease;
+      box-shadow: 0 4px 16px rgba(0,0,0,.2);
+    }
+    .toast-success { background: var(--natulac-mid); }
+    .toast-error   { background: var(--natulac-danger); }
+    .toast-info    { background: #3a6186; }
+    @keyframes slideIn { from { transform: translateX(110%); opacity:0; } to { transform:translateX(0); opacity:1; } }
+
+    /* ── LOADER ──────────────────────────────────────────── */
+    #global-loader {
+      position: fixed; inset: 0; background: var(--natulac-dark);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 8888; transition: opacity .4s ease;
+    }
+    #global-loader.hidden { opacity: 0; pointer-events: none; }
+    .loader-logo { text-align: center; color: #fff; }
+    .loader-logo span { font-family: var(--font-head); font-size: 2.2rem; font-weight: 800; letter-spacing: -1px; }
+    .loader-logo small { display: block; font-size: .75rem; color: var(--natulac-accent); letter-spacing: 3px; text-transform: uppercase; margin-top: .25rem; }
+    .spinner-ring {
+      width: 48px; height: 48px; border: 4px solid rgba(46,196,138,.2);
+      border-top-color: var(--natulac-accent); border-radius: 50%;
+      animation: spin .8s linear infinite; margin: 1.5rem auto 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── SCREENS ─────────────────────────────────────────── */
+    .screen { display: none; min-height: 100vh; }
+    .screen.active { display: flex; flex-direction: column; animation: fadeUp .35s ease; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity:1; transform:translateY(0); } }
+
+    /* ── LOGIN SCREEN ────────────────────────────────────── */
+    #screen-login {
+      background: linear-gradient(145deg, var(--natulac-dark) 0%, var(--natulac-green) 100%);
+      align-items: center; justify-content: center; padding: 2rem 1rem;
+    }
+    .login-card {
+      width: 100%; max-width: 420px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: var(--radius-lg);
+      padding: 2.5rem 2rem;
+      backdrop-filter: blur(12px);
+    }
+    .login-brand { text-align: center; margin-bottom: 2rem; }
+    .login-brand .brand-icon {
+      width: 72px; height: 72px; background: var(--natulac-accent);
+      border-radius: 22px; display: flex; align-items: center;
+      justify-content: center; margin: 0 auto 1rem; font-size: 2rem;
+    }
+    .login-brand h1 {
+      font-family: var(--font-head); font-size: 2rem; font-weight: 800;
+      color: #fff; margin: 0; letter-spacing: -1px;
+    }
+    .login-brand p { color: rgba(255,255,255,.55); font-size: .85rem; margin: .25rem 0 0; letter-spacing: 2px; text-transform: uppercase; }
+    .login-card .form-label { color: rgba(255,255,255,.7); font-size: .82rem; font-weight: 500; letter-spacing: .5px; }
+    .login-card .form-control {
+      background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15);
+      color: #fff; border-radius: var(--radius-md); padding: .75rem 1rem;
+      font-family: var(--font-body); font-size: 1rem;
+    }
+    .login-card .form-control::placeholder { color: rgba(255,255,255,.3); }
+    .login-card .form-control:focus {
+      background: rgba(255,255,255,.12); border-color: var(--natulac-accent);
+      box-shadow: 0 0 0 3px rgba(46,196,138,.25); color: #fff;
+    }
+    .btn-login {
+      width: 100%; padding: .85rem; border: none;
+      background: var(--natulac-accent); color: var(--natulac-dark);
+      font-family: var(--font-head); font-size: 1rem; font-weight: 700;
+      border-radius: var(--radius-md); cursor: pointer; letter-spacing: .5px;
+      transition: transform .15s, box-shadow .15s;
+    }
+    .btn-login:hover { transform: translateY(-2px); box-shadow: var(--shadow-btn); }
+    .btn-login:active { transform: translateY(0); }
+    .btn-login:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+
+    /* ── APP HEADER ──────────────────────────────────────── */
+    #screen-app { background: var(--natulac-cream); }
+    .app-header {
+      background: var(--natulac-dark);
+      padding: .9rem 1.25rem;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 100;
+      box-shadow: 0 2px 12px rgba(0,0,0,.3);
+    }
+    .app-header .brand {
+      font-family: var(--font-head); font-size: 1.4rem; font-weight: 800;
+      color: #fff; letter-spacing: -0.5px;
+    }
+    .app-header .brand span { color: var(--natulac-accent); }
+    .header-meta { display: flex; align-items: center; gap: .75rem; }
+    .role-badge {
+      font-size: .7rem; font-weight: 700; letter-spacing: 1px;
+      text-transform: uppercase; padding: .3rem .75rem;
+      border-radius: 50px; background: rgba(46,196,138,.15);
+      color: var(--natulac-accent); border: 1px solid rgba(46,196,138,.3);
+    }
+    .role-badge.admin { background: rgba(245,166,35,.15); color: var(--natulac-warn); border-color: rgba(245,166,35,.3); }
+    .btn-logout {
+      background: transparent; border: 1px solid rgba(255,255,255,.15);
+      color: rgba(255,255,255,.6); border-radius: 50px; padding: .3rem .85rem;
+      font-size: .8rem; cursor: pointer; transition: all .2s;
+      font-family: var(--font-body);
+    }
+    .btn-logout:hover { border-color: var(--natulac-danger); color: var(--natulac-danger); }
+
+    /* ── NAV TABS ────────────────────────────────────────── */
+    .nav-tabs-custom {
+      display: flex; background: var(--natulac-green);
+      padding: 0 1rem; gap: .25rem; overflow-x: auto;
+    }
+    .nav-tab-btn {
+      flex-shrink: 0; background: transparent; border: none;
+      color: rgba(255,255,255,.55); font-family: var(--font-body);
+      font-size: .85rem; font-weight: 500; padding: .75rem 1.1rem;
+      cursor: pointer; border-bottom: 2px solid transparent;
+      transition: color .2s, border-color .2s;
+    }
+    .nav-tab-btn.active { color: var(--natulac-accent); border-bottom-color: var(--natulac-accent); }
+    .nav-tab-btn.hidden-tab { display: none; }
+
+    /* ── TAB PANES ───────────────────────────────────────── */
+    .tab-pane { display: none; padding: 1.25rem; }
+    .tab-pane.active { display: block; animation: fadeUp .25s ease; }
+
+    /* ── SECTION CARDS ───────────────────────────────────── */
+    .section-card {
+      background: #fff; border-radius: var(--radius-lg);
+      border: 1px solid var(--natulac-border);
+      box-shadow: var(--shadow-card);
+      padding: 1.5rem; margin-bottom: 1.25rem;
+    }
+    .section-card h5 {
+      font-family: var(--font-head); font-weight: 700; font-size: 1rem;
+      color: var(--natulac-green); margin-bottom: 1.1rem;
+      display: flex; align-items: center; gap: .5rem;
+    }
+    .section-card h5 i { font-size: 1.15rem; color: var(--natulac-accent); }
+
+    /* ── FORM CONTROLS ───────────────────────────────────── */
+    .form-label {
+      font-size: .82rem; font-weight: 600; color: #4a6355;
+      letter-spacing: .3px; margin-bottom: .35rem;
+    }
+    .form-control, .form-select {
+      border: 1.5px solid var(--natulac-border); border-radius: var(--radius-md);
+      padding: .7rem 1rem; font-family: var(--font-body); font-size: .95rem;
+      background: var(--natulac-cream); color: #1a2e28;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .form-control:focus, .form-select:focus {
+      border-color: var(--natulac-mid); background: #fff;
+      box-shadow: 0 0 0 3px rgba(14,107,81,.15); outline: none;
+    }
+
+    /* Autocomplete */
+    .autocomplete-wrap { position: relative; }
+    .autocomplete-list {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+      background: #fff; border: 1.5px solid var(--natulac-border);
+      border-radius: var(--radius-md); max-height: 220px; overflow-y: auto;
+      z-index: 500; box-shadow: 0 8px 24px rgba(0,0,0,.1);
+      display: none;
+    }
+    .autocomplete-list.open { display: block; }
+    .autocomplete-item {
+      padding: .65rem 1rem; cursor: pointer; font-size: .9rem;
+      border-bottom: 1px solid #f0f7f4; transition: background .15s;
+    }
+    .autocomplete-item:last-child { border-bottom: none; }
+    .autocomplete-item:hover, .autocomplete-item.selected { background: var(--natulac-light); }
+    .autocomplete-item mark { background: none; color: var(--natulac-accent); font-weight: 700; }
+    .autocomplete-empty { padding: .65rem 1rem; color: #9ab8ae; font-size: .88rem; }
+
+    /* ── FACTURAS SECTION ────────────────────────────────── */
+    .factura-item {
+      display: flex; gap: .5rem; align-items: center; margin-bottom: .6rem;
+    }
+    .factura-item .form-control { flex: 1; }
+    .btn-remove-factura {
+      flex-shrink: 0; width: 36px; height: 38px;
+      background: #fff5f5; border: 1.5px solid #ffd0d0;
+      border-radius: var(--radius-md); color: var(--natulac-danger);
+      font-size: 1rem; cursor: pointer; display: flex;
+      align-items: center; justify-content: center; transition: all .2s;
+    }
+    .btn-remove-factura:hover { background: var(--natulac-danger); color: #fff; border-color: var(--natulac-danger); }
+    .btn-add-factura {
+      background: var(--natulac-light); border: 1.5px dashed var(--natulac-mid);
+      color: var(--natulac-mid); border-radius: var(--radius-md);
+      padding: .6rem 1.1rem; font-size: .88rem; font-weight: 600;
+      cursor: pointer; transition: all .2s; width: 100%; margin-top: .25rem;
+      font-family: var(--font-body);
+    }
+    .btn-add-factura:hover { background: var(--natulac-mid); color: #fff; }
+
+    /* ── GEO STATUS ──────────────────────────────────────── */
+    .geo-status {
+      display: flex; align-items: center; gap: .6rem;
+      padding: .6rem 1rem; border-radius: var(--radius-md);
+      font-size: .82rem; font-weight: 500;
+      background: var(--natulac-light); border: 1px solid var(--natulac-border);
+      color: #4a6355;
+    }
+    .geo-status.ok   { background: #e6f9f0; border-color: #a5e4c4; color: #1a6b42; }
+    .geo-status.fail { background: #fff3f3; border-color: #ffc0c0; color: #b33b3b; }
+    .geo-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.3; } }
+
+    /* ── SUBMIT BUTTON ───────────────────────────────────── */
+    .btn-submit {
+      width: 100%; padding: 1rem; border: none;
+      background: linear-gradient(135deg, var(--natulac-mid), var(--natulac-green));
+      color: #fff; font-family: var(--font-head); font-size: 1.05rem;
+      font-weight: 700; border-radius: var(--radius-md);
+      cursor: pointer; letter-spacing: .3px;
+      transition: transform .15s, box-shadow .15s;
+      box-shadow: 0 4px 16px rgba(14,107,81,.4);
+    }
+    .btn-submit:hover  { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(14,107,81,.5); }
+    .btn-submit:active { transform: translateY(0); }
+    .btn-submit:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+
+    /* ── ADMIN TABLE ─────────────────────────────────────── */
+    .table-wrap { overflow-x: auto; border-radius: var(--radius-md); }
+    .admin-table {
+      width: 100%; border-collapse: collapse; font-size: .83rem;
+      font-family: var(--font-body); white-space: nowrap;
+    }
+    .admin-table thead th {
+      background: var(--natulac-green); color: #fff;
+      padding: .65rem .9rem; font-weight: 600; letter-spacing: .3px;
+      text-align: left; position: sticky; top: 0;
+    }
+    .admin-table tbody tr { border-bottom: 1px solid #eef5f2; transition: background .15s; }
+    .admin-table tbody tr:hover { background: var(--natulac-light); }
+    .admin-table td { padding: .6rem .9rem; color: #2a4038; }
+    .admin-table .badge-ok { display: inline-block; padding: .2rem .6rem; border-radius: 50px; font-size: .72rem; background: #d5f5e8; color: #1a6b42; font-weight: 600; }
+
+    .btn-sync {
+      background: var(--natulac-warn); border: none; color: #1a1a1a;
+      font-family: var(--font-head); font-weight: 700; font-size: .88rem;
+      border-radius: var(--radius-md); padding: .65rem 1.4rem;
+      cursor: pointer; transition: all .2s; letter-spacing: .3px;
+    }
+    .btn-sync:hover { background: #e09210; box-shadow: 0 4px 16px rgba(245,166,35,.4); }
+    .btn-sync:disabled { opacity: .6; cursor: not-allowed; }
+
+    /* ── STATS CARDS ─────────────────────────────────────── */
+    .stats-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px,1fr)); gap: .75rem; margin-bottom: 1.25rem; }
+    .stat-card {
+      background: #fff; border: 1px solid var(--natulac-border);
+      border-radius: var(--radius-md); padding: 1rem;
+      text-align: center; box-shadow: var(--shadow-card);
+    }
+    .stat-card .val { font-family: var(--font-head); font-size: 1.8rem; font-weight: 800; color: var(--natulac-green); }
+    .stat-card .lbl { font-size: .75rem; color: #7a9d8a; margin-top: .15rem; }
+
+    /* ── OFFLINE BANNER ──────────────────────────────────── */
+    #offline-banner {
+      display: none; background: var(--natulac-warn); color: #1a1a1a;
+      text-align: center; padding: .5rem 1rem; font-size: .82rem;
+      font-weight: 600; letter-spacing: .3px;
+    }
+    #offline-banner.show { display: block; }
+
+    /* ── INSTALL PROMPT ──────────────────────────────────── */
+    #install-banner {
+      display: none; background: var(--natulac-dark); color: #fff;
+      padding: .8rem 1.25rem; align-items: center; justify-content: space-between;
+      font-size: .85rem; gap: .75rem;
+    }
+    #install-banner.show { display: flex; }
+    #btn-install {
+      flex-shrink: 0; background: var(--natulac-accent); color: var(--natulac-dark);
+      border: none; border-radius: var(--radius-md); padding: .45rem 1rem;
+      font-weight: 700; font-size: .82rem; cursor: pointer; font-family: var(--font-head);
+    }
+    #btn-dismiss-install { background: transparent; border: none; color: rgba(255,255,255,.5); cursor: pointer; font-size: 1.1rem; }
+
+    /* ── RESPONSIVE ──────────────────────────────────────── */
+    @media (max-width: 480px) {
+      .section-card { padding: 1.1rem; }
+      .login-card { padding: 2rem 1.25rem; }
+      .tab-pane { padding: 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════
+     LOADER
+════════════════════════════════════════════ -->
+<div id="global-loader">
+  <div class="loader-logo">
+    <span>Natulac</span>
+    <small>Sistema de Despachos</small>
+    <div class="spinner-ring"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TOAST CONTAINER
+════════════════════════════════════════════ -->
+<div id="toast-container"></div>
+
+<!-- ═══════════════════════════════════════════
+     OFFLINE BANNER
+════════════════════════════════════════════ -->
+<div id="offline-banner">
+  <i class="bi bi-wifi-off me-2"></i>Sin conexión – Los datos se enviarán cuando vuelva la red.
+</div>
+
+<!-- ═══════════════════════════════════════════
+     INSTALL BANNER (PWA)
+════════════════════════════════════════════ -->
+<div id="install-banner">
+  <span><i class="bi bi-phone-vibrate me-2"></i>Instala la app en tu dispositivo para usarla sin internet.</span>
+  <div style="display:flex;gap:.5rem;align-items:center">
+    <button id="btn-install">Instalar</button>
+    <button id="btn-dismiss-install" aria-label="Cerrar">&times;</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     SCREEN: LOGIN
+════════════════════════════════════════════ -->
+<div id="screen-login" class="screen active">
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="brand-icon">🥛</div>
+      <h1>Natulac</h1>
+      <p>Sistema de Despachos</p>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label" for="inp-cedula">Cédula</label>
+      <input id="inp-cedula" type="tel" class="form-control" placeholder="Ej. 12345678"
+             inputmode="numeric" autocomplete="username" />
+    </div>
+    <div class="mb-4">
+      <label class="form-label" for="inp-clave">Clave</label>
+      <input id="inp-clave" type="password" class="form-control" placeholder="••••••"
+             autocomplete="current-password" />
+    </div>
+
+    <button id="btn-login" class="btn-login">
+      <i class="bi bi-box-arrow-in-right me-2"></i>Ingresar
+    </button>
+
+    <p style="text-align:center;margin-top:1.5rem;color:rgba(255,255,255,.3);font-size:.75rem;">
+      v1.0 · Natulac © 2025
+    </p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     SCREEN: APP
+════════════════════════════════════════════ -->
+<div id="screen-app" class="screen">
+
+  <!-- Header -->
+  <header class="app-header">
+    <span class="brand">Natu<span>lac</span></span>
+    <div class="header-meta">
+      <span id="role-badge" class="role-badge"></span>
+      <span id="header-user" style="color:rgba(255,255,255,.7);font-size:.82rem;"></span>
+      <button class="btn-logout" id="btn-logout"><i class="bi bi-power"></i></button>
+    </div>
+  </header>
+
+  <!-- Nav tabs -->
+  <nav class="nav-tabs-custom">
+    <button class="nav-tab-btn active" data-tab="despacho">
+      <i class="bi bi-truck me-1"></i>Despacho
+    </button>
+    <button class="nav-tab-btn hidden-tab" id="tab-btn-registros" data-tab="registros">
+      <i class="bi bi-table me-1"></i>Registros
+    </button>
+    <button class="nav-tab-btn hidden-tab" id="tab-btn-admin" data-tab="admin">
+      <i class="bi bi-shield-check me-1"></i>Admin
+    </button>
+  </nav>
+
+  <!-- ── TAB: DESPACHO ──────────────────────────────────── -->
+  <div id="tab-despacho" class="tab-pane active">
+
+    <div class="section-card">
+      <h5><i class="bi bi-person-lines-fill"></i>Datos del Cliente</h5>
+
+      <div class="mb-3">
+        <label class="form-label">Nombre del Cliente *</label>
+        <div class="autocomplete-wrap">
+          <input id="inp-cliente" type="text" class="form-control"
+                 placeholder="Buscar cliente..." autocomplete="off" />
+          <div id="autocomplete-list" class="autocomplete-list"></div>
+        </div>
+        <input type="hidden" id="inp-cliente-id" />
+      </div>
+
+      <div class="row g-2">
+        <div class="col-6">
+          <label class="form-label">RIF / Cédula</label>
+          <input id="inp-rif" type="text" class="form-control" placeholder="J-12345678-9" readonly />
+        </div>
+        <div class="col-6">
+          <label class="form-label">Zona</label>
+          <input id="inp-zona" type="text" class="form-control" placeholder="–" readonly />
+        </div>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <h5><i class="bi bi-box-seam"></i>Detalle del Despacho</h5>
+
+      <div class="mb-3">
+        <label class="form-label">Producto / Descripción *</label>
+        <input id="inp-producto" type="text" class="form-control" placeholder="Ej. Leche completa 1L x 12" />
+      </div>
+
+      <div class="row g-2 mb-3">
+        <div class="col-6">
+          <label class="form-label">Cantidad (cajas/unid.) *</label>
+          <input id="inp-cantidad" type="number" class="form-control" placeholder="0" min="1" />
+        </div>
+        <div class="col-6">
+          <label class="form-label">Unidad</label>
+          <select id="inp-unidad" class="form-select">
+            <option value="Cajas">Cajas</option>
+            <option value="Unidades">Unidades</option>
+            <option value="Paletas">Paletas</option>
+            <option value="Kg">Kg</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Observaciones</label>
+        <textarea id="inp-obs" class="form-control" rows="2" placeholder="Notas adicionales..."></textarea>
+      </div>
+    </div>
+
+    <!-- FACTURAS -->
+    <div class="section-card">
+      <h5><i class="bi bi-receipt"></i>Números de Factura</h5>
+      <div id="facturas-container">
+        <div class="factura-item">
+          <input type="text" class="form-control factura-input" placeholder="N° Factura 1" />
+        </div>
+      </div>
+      <button class="btn-add-factura" id="btn-add-factura">
+        <i class="bi bi-plus-circle me-1"></i> Agregar otra factura
+      </button>
+    </div>
+
+    <!-- GEO + SUBMIT -->
+    <div class="section-card">
+      <h5><i class="bi bi-geo-alt"></i>Ubicación y Envío</h5>
+      <div id="geo-status" class="geo-status mb-3">
+        <span class="geo-dot"></span>
+        <span id="geo-text">Obteniendo ubicación...</span>
+      </div>
+      <input type="hidden" id="inp-lat" />
+      <input type="hidden" id="inp-lng" />
+      <input type="hidden" id="inp-fecha" />
+      <button id="btn-submit" class="btn-submit">
+        <i class="bi bi-send-fill me-2"></i>Registrar Despacho
+      </button>
+    </div>
+  </div>
+
+  <!-- ── TAB: REGISTROS ─────────────────────────────────── -->
+  <div id="tab-registros" class="tab-pane">
+    <div class="section-card">
+      <h5><i class="bi bi-clock-history"></i>Historial de Despachos</h5>
+      <div class="table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>#</th><th>Fecha</th><th>Cliente</th><th>Producto</th>
+              <th>Cant.</th><th>Facturas</th><th>Transportista</th>
+            </tr>
+          </thead>
+          <tbody id="registros-body">
+            <tr><td colspan="7" style="text-align:center;padding:2rem;color:#9ab8ae;">
+              Cargando registros...
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TAB: ADMIN ─────────────────────────────────────── -->
+  <div id="tab-admin" class="tab-pane">
+
+    <div class="stats-row" id="stats-row"></div>
+
+    <div class="section-card">
+      <h5><i class="bi bi-people"></i>Base de Datos de Clientes</h5>
+      <p style="font-size:.85rem;color:#7a9d8a;margin-bottom:1rem;">
+        Sincroniza la lista de clientes desde Google Sheets. Los transportistas verán la lista actualizada inmediatamente.
+      </p>
+      <button id="btn-sync" class="btn-sync">
+        <i class="bi bi-arrow-repeat me-2"></i>Sincronizar Clientes
+      </button>
+      <div class="table-wrap mt-3">
+        <table class="admin-table">
+          <thead>
+            <tr><th>ID</th><th>Nombre</th><th>RIF</th><th>Zona</th></tr>
+          </thead>
+          <tbody id="clientes-body">
+            <tr><td colspan="4" style="text-align:center;padding:2rem;color:#9ab8ae;">–</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <h5><i class="bi bi-people-fill"></i>Usuarios del Sistema</h5>
+      <div class="table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr><th>Cédula</th><th>Nombre</th><th>Rol</th></tr>
+          </thead>
+          <tbody id="usuarios-body">
+            <tr><td colspan="3" style="text-align:center;padding:2rem;color:#9ab8ae;">–</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+</div><!-- /screen-app -->
+
+<!-- Bootstrap 5 JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<!-- App Script -->
+<script src="script.js"></script>
+</body>
+</html>
