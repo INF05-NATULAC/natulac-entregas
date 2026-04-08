@@ -356,26 +356,14 @@
     <div class="section-card">
       <h5><i class="bi bi-person-plus-fill"></i>Agregar Cliente</h5>
       <div class="add-form-panel">
-        <div class="row g-2 mb-2">
-          <div class="col-12">
+        <div class="row g-2 mb-3">
+          <div class="col-6">
             <label class="form-label">Nombre *</label>
-            <input id="new-cli-nombre" type="text" class="form-control" placeholder="Nombre del cliente o empresa" />
+            <input id="new-cli-nombre" type="text" class="form-control" placeholder="Nombre del cliente" />
           </div>
-        </div>
-        <div class="row g-2 mb-2">
           <div class="col-6">
             <label class="form-label">RIF / Cédula</label>
             <input id="new-cli-rif" type="text" class="form-control" placeholder="J-12345678-9" />
-          </div>
-          <div class="col-6">
-            <label class="form-label">Teléfono</label>
-            <input id="new-cli-tel" type="tel" class="form-control" placeholder="0412-0000000" />
-          </div>
-        </div>
-        <div class="row g-2 mb-3">
-          <div class="col-12">
-            <label class="form-label">Zona / Dirección</label>
-            <input id="new-cli-zona" type="text" class="form-control" placeholder="Ej. Zona Norte, Caracas" />
           </div>
         </div>
         <button id="btn-save-cliente" class="btn-primary-sm">
@@ -396,10 +384,10 @@
       <div class="table-wrap">
         <table class="admin-table">
           <thead>
-            <tr><th>#</th><th>Nombre</th><th>RIF</th><th>Zona</th><th>Teléfono</th><th>Acción</th></tr>
+            <tr><th>#</th><th>Nombre</th><th>RIF</th><th>Acción</th></tr>
           </thead>
           <tbody id="clientes-body">
-            <tr><td colspan="6" style="text-align:center;padding:2rem;color:#8fa8d0;">–</td></tr>
+            <tr><td colspan="4" style="text-align:center;padding:2rem;color:#8fa8d0;">–</td></tr>
           </tbody>
         </table>
       </div>

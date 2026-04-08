@@ -95,8 +95,6 @@ function handleGetClientes() {
       id:     String(row[0]).trim(),
       nombre: String(row[1]).trim(),
       rif:    String(row[2] || '').trim(),
-      zona:   String(row[3] || '').trim(),
-      tel:    String(row[4] || '').trim(),
     });
   }
   return jsonResponse({ ok: true, data: out, total: out.length });
@@ -129,12 +127,10 @@ function handleSaveCliente(data) {
     id,
     data.nombre  || '',
     data.rif     || '',
-    data.zona    || '',
-    data.tel     || '',
     'true',
   ]);
 
-  _styleRow(sheet, sheet.getLastRow(), 6);
+  _styleRow(sheet, sheet.getLastRow(), 4);
   SpreadsheetApp.flush();
   Logger.log('Cliente agregado: ' + id + ' - ' + data.nombre);
   return jsonResponse({ ok: true, id, mensaje: 'Cliente guardado correctamente.' });
@@ -151,7 +147,7 @@ function handleDeleteCliente(data) {
 
   for (let i = 1; i < rows.length; i++) {
     if (String(rows[i][0]).trim() === data.id) {
-      sheet.getRange(i + 1, 6).setValue('false'); // columna Activo
+      sheet.getRange(i + 1, 4).setValue('false'); // columna Activo
       SpreadsheetApp.flush();
       return jsonResponse({ ok: true, mensaje: 'Cliente desactivado.' });
     }
@@ -250,8 +246,8 @@ function handleGetRegistros(cedula, rol) {
       rif:                 String(row[6]  || '').trim(),
       facturas:            String(row[7]  || '').trim(),
       observaciones:       String(row[8]  || '').trim(),
-      lat:                 String(row[9]  || '').trim(),
-      lng:                 String(row[10] || '').trim(),
+      lat:                 (String(row[9] || '').split(',')[0] || '').trim(),
+      lng:                 (String(row[9] || '').split(',')[1] || '').trim(),
     });
   }
   out.reverse();
@@ -270,7 +266,7 @@ function handleSaveDespacho(data) {
   const id      = 'DSP-' + Utilities.formatDate(new Date(), 'America/Caracas', 'yyyyMMdd') + '-' + sheet.getLastRow();
   const fecha   = data.fecha || Utilities.formatDate(new Date(), 'America/Caracas', 'dd/MM/yyyy HH:mm:ss');
 
-  // ID | Fecha | TranspCedula | TranspNombre | ClienteID | ClienteNombre | RIF | Facturas | Observaciones | Lat | Lng
+  // ID | Fecha | TranspCedula | TranspNombre | ClienteID | ClienteNombre | RIF | Facturas | Observaciones | Ubicacion
   const row = [
     id, fecha,
     data.transportistaCedula || '',
@@ -280,23 +276,28 @@ function handleSaveDespacho(data) {
     data.rif                 || '',
     data.facturas            || '',
     data.observaciones       || '',
-    data.lat                 || '',
-    data.lng                 || '',
+    (data.lat && data.lng) ? `${data.lat}, ${data.lng}` : '',
   ];
 
   sheet.appendRow(row);
   const newRow = sheet.getLastRow();
 
-  // Columnas de coordenadas como HYPERLINK de Maps
+  // Columnas de coordenadas como LINK de Maps (evitamos formulas por errores de locale)
   if (data.lat && data.lng) {
-    const mapsUrl   = `https://www.google.com/maps?q=${data.lat},${data.lng}`;
-    const coordText = `${data.lat}, ${data.lng}`;
-    sheet.getRange(newRow, 10).setFormula(`=HYPERLINK("${mapsUrl}","${coordText}")`);
-    sheet.getRange(newRow, 11).setFormula(`=HYPERLINK("${mapsUrl}","📍 Ver en Maps")`);
-    sheet.getRange(newRow, 10, 1, 2).setFontColor('#003087').setFontLine('underline');
+    const mapsUrl = `https://www.google.com/maps?q=${data.lat},${data.lng}`;
+    const label   = `${data.lat}, ${data.lng}`;
+    const cell    = sheet.getRange(newRow, 10);
+
+    const richText = SpreadsheetApp.newRichTextValue()
+      .setText(label)
+      .setLinkUrl(mapsUrl)
+      .build();
+
+    cell.setRichTextValue(richText);
+    cell.setFontColor('#003087').setFontLine('underline');
   }
 
-  _styleRow(sheet, newRow, 9); // estilar solo las primeras 9 columnas de texto
+  _styleRow(sheet, newRow, 10);
   Logger.log('Despacho guardado: ' + id);
   return jsonResponse({ ok: true, id, mensaje: 'Despacho registrado correctamente.' });
 }
@@ -339,19 +340,18 @@ function setupSheets() {
   shU.appendRow(['Cedula','Clave','Rol','Nombre','Activo']);
   _styleHeader(shU, 5);
 
-  // Clientes: ID | Nombre | RIF | Zona | Telefono | Activo
+  // Clientes: ID | Nombre | RIF | Activo
   const shC = ss.getSheetByName(SHEET_CLIENTES) || ss.insertSheet(SHEET_CLIENTES);
   shC.clearContents();
-  shC.appendRow(['ID','Nombre','RIF','Zona','Telefono','Activo']);
-  _styleHeader(shC, 6);
+  shC.appendRow(['ID','Nombre','RIF','Activo']);
+  _styleHeader(shC, 4);
 
-  // Despachos: ID | Fecha | TranspCedula | TranspNombre | ClienteID | ClienteNombre | RIF | Facturas | Observaciones | Lat | Lng
+  // Despachos: ID | Fecha | TranspCedula | TranspNombre | ClienteID | ClienteNombre | RIF | Facturas | Observaciones | Ubicación
   const shD = ss.getSheetByName(SHEET_DESPACHOS) || ss.insertSheet(SHEET_DESPACHOS);
   shD.clearContents();
-  shD.appendRow(['ID','Fecha','TransportistaCedula','TransportistaNombre','ClienteID','ClienteNombre','RIF','Facturas','Observaciones','Latitud (Maps)','Longitud (Maps)']);
-  _styleHeader(shD, 11);
-  shD.setColumnWidth(10, 200);
-  shD.setColumnWidth(11, 160);
+  shD.appendRow(['ID','Fecha','TransportistaCedula','TransportistaNombre','ClienteID','ClienteNombre','RIF','Facturas','Observaciones','Ubicación (Maps)']);
+  _styleHeader(shD, 10);
+  shD.setColumnWidth(10, 250);
 
   // Config
   const shCfg = ss.getSheetByName(SHEET_CONFIG) || ss.insertSheet(SHEET_CONFIG);
@@ -362,7 +362,11 @@ function setupSheets() {
   _styleHeader(shCfg, 2);
 
   SpreadsheetApp.flush();
-  SpreadsheetApp.getUi().alert('✅ Hojas creadas (v1.2).\n\nEjecuta "insertarDatosDePrueba()" para agregar datos de ejemplo.');
+  try {
+    SpreadsheetApp.getUi().alert('✅ Hojas creadas (v1.2).\n\nEjecuta "insertarDatosDePrueba()" para agregar datos de ejemplo.');
+  } catch (e) {
+    Logger.log('✅ Hojas creadas (v1.2).');
+  }
 }
 
 function _styleHeader(sheet, cols) {
@@ -381,14 +385,18 @@ function insertarDatosDePrueba() {
   ss.getSheetByName(SHEET_USUARIOS).appendRow(['11223344','user456', 'User', 'Luis Martínez',   'true']);
 
   const clientes = [
-    ['C001','Distribuidora El Sol',   'J-12345678-9','Zona Norte',  '0412-1234567','true'],
-    ['C002','Supermercado La Colina', 'J-98765432-1','Zona Sur',    '0416-9876543','true'],
-    ['C003','Bodega Central Caracas', 'J-11223344-5','Zona Centro', '0424-1112233','true'],
-    ['C004','Mini Market Los Andes',  'V-44556677',  'Zona Oeste',  '0414-4455667','true'],
-    ['C005','Abastos El Progreso',    'J-55667788-2','Zona Este',   '0426-5566778','true'],
+    ['C001','Distribuidora El Sol',   'J-12345678-9','true'],
+    ['C002','Supermercado La Colina', 'J-98765432-1','true'],
+    ['C003','Bodega Central Caracas', 'J-11223344-5','true'],
+    ['C004','Mini Market Los Andes',  'V-44556677',  'true'],
+    ['C005','Abastos El Progreso',    'J-55667788-2','true'],
   ];
   clientes.forEach(c => ss.getSheetByName(SHEET_CLIENTES).appendRow(c));
 
   SpreadsheetApp.flush();
-  SpreadsheetApp.getUi().alert('✅ Datos insertados.\n\nAdmin: 12345678 / admin123\nUser:  87654321 / user123');
+  try {
+    SpreadsheetApp.getUi().alert('✅ Datos insertados.\n\nAdmin: 12345678 / admin123\nUser:  87654321 / user123');
+  } catch (e) {
+    Logger.log('✅ Datos de prueba insertados.');
+  }
 }
