@@ -13,7 +13,7 @@
 //  CONFIGURACIÓN
 // ─────────────────────────────────────────────────────────
 const CONFIG = {
-  GAS_URL:            'https://script.google.com/macros/s/AKfycbzlfZL3INQFqVdOTto3cWW9hLsu8c7nBx5IP5v2ACyWDAuDcYvg1x5mr6fTHVbKmDVMLQ/exec',
+  GAS_URL:            'https://script.google.com/macros/s/AKfycbyZFnvieTUwD4r3IghyEEMJlFEhximrXCNsV_Mf3Xb8gqAKdPol8emxWVPpZ2GAcS_fNw/exec',
   CLIENTES_CACHE_KEY: 'natulac_clientes_v1',
   SESSION_KEY:        'natulac_session_v1',
   QUEUE_KEY:          'natulac_queue_v1',
