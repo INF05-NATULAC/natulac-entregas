@@ -422,7 +422,7 @@ function renderClientesTable(data) {
   const list   = filter ? data.filter(c => c.nombre.toLowerCase().includes(filter) || (c.rif||'').toLowerCase().includes(filter)) : data;
 
   if (!list.length) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:2rem;color:#8fa8d0;">${filter ? 'Sin coincidencias.' : 'Sin clientes registrados.'}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:2rem;color:#8fa8d0;">${filter ? 'Sin coincidencias.' : 'Sin clientes registrados.'}</td></tr>`;
     return;
   }
   tbody.innerHTML = list.map((c, i) => `
@@ -430,8 +430,6 @@ function renderClientesTable(data) {
       <td>${i+1}</td>
       <td><strong>${c.nombre}</strong></td>
       <td>${c.rif||'–'}</td>
-      <td>${c.zona||'–'}</td>
-      <td>${c.tel||'–'}</td>
       <td>
         <button class="btn-danger-sm" onclick="handleDeleteCliente('${c.id}', this)">
           <i class="bi bi-trash"></i>
@@ -452,8 +450,6 @@ async function loadClientesAdmin(forceSync = false) {
 async function handleSaveCliente() {
   const nombre = document.getElementById('new-cli-nombre').value.trim();
   const rif    = document.getElementById('new-cli-rif').value.trim();
-  const tel    = document.getElementById('new-cli-tel').value.trim();
-  const zona   = document.getElementById('new-cli-zona').value.trim();
 
   if (!nombre) { showToast('El nombre del cliente es requerido.', 'error'); return; }
 
@@ -461,11 +457,14 @@ async function handleSaveCliente() {
   setBtnLoading(btn, true);
 
   try {
-    const res = await apiPost({ action: 'saveCliente', data: { nombre, rif, tel, zona } });
+    const res = await apiPost({ action: 'saveCliente', data: { nombre, rif } });
     if (res.ok) {
       showToast(`<i class="bi bi-check-circle-fill me-1"></i>Cliente "${nombre}" agregado.`, 'success');
       // Limpiar campos
-      ['new-cli-nombre','new-cli-rif','new-cli-tel','new-cli-zona'].forEach(id => document.getElementById(id).value = '');
+      ['new-cli-nombre','new-cli-rif'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
       // Recargar lista y caché
       await loadClientesAdmin(true);
       // Refrescar autocomplete del despacho
