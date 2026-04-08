@@ -14,7 +14,7 @@
 //  CONFIGURACIÓN
 // ─────────────────────────────────────────────────────────
 const CONFIG = {
-  GAS_URL: 'https://script.google.com/macros/s/TU_DEPLOYMENT_ID_AQUI/exec',
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbyrBJanjqKYykMfoMbVjU2KhnadZoYflmdozq5mZ6aY5IgmGQGdebNvBZZ_p_CUEEaZCQ/exec',
   CLIENTES_CACHE_KEY: 'natulac_clientes_v1',
   SESSION_KEY:        'natulac_session_v1',
   QUEUE_KEY:          'natulac_queue_v1',
