@@ -20,6 +20,15 @@ function getSheet(name) {
 }
 
 // ─────────────────────────────────────────────────────────
+//  RESPUESTA JSON
+// ─────────────────────────────────────────────────────────
+function jsonResponse(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ─────────────────────────────────────────────────────────
 //  doGet
 // ─────────────────────────────────────────────────────────
 function doGet(e) {
@@ -132,8 +141,6 @@ function handleSaveCliente(data) {
     'true',
   ]);
 
-  _styleRow(sheet, sheet.getLastRow(), 4);
-  SpreadsheetApp.flush();
   Logger.log('Cliente agregado: ' + id + ' - ' + data.nombre);
   return jsonResponse({ ok: true, id, mensaje: 'Cliente guardado correctamente.' });
 }
@@ -201,8 +208,6 @@ function handleSaveUsuario(data) {
     'true',
   ]);
 
-  _styleRow(sheet, sheet.getLastRow(), 5);
-  SpreadsheetApp.flush();
   Logger.log('Usuario agregado: ' + data.cedula + ' - ' + data.nombre);
   return jsonResponse({ ok: true, mensaje: 'Usuario guardado correctamente.' });
 }
@@ -310,11 +315,6 @@ function handleGetStats() {
 // ─────────────────────────────────────────────────────────
 //  UTILIDADES
 // ─────────────────────────────────────────────────────────
-
-function getSheet(name) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  return ss.getSheetByName(name) || ss.insertSheet(name);
-}
 
 function _styleRow(sheet, rowNum, cols) {
   sheet.getRange(rowNum, 1, 1, cols).setFontFamily('Arial').setFontSize(10);
