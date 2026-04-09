@@ -78,23 +78,43 @@ function setBtnLoading(btn, loading, originalHTML) {
 //  API
 // ─────────────────────────────────────────────────────────
 
-async function apiGet(params = {}) {
+async function apiGet(params = {}, timeout = 5000) {
   const url = new URL(CONFIG.GAS_URL);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const res = await fetch(url.toString(), { method: 'GET', mode: 'cors' });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const res = await fetch(url.toString(), { method: 'GET', mode: 'cors', signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
 }
 
-async function apiPost(payload = {}) {
-  const res = await fetch(CONFIG.GAS_URL, {
-    method:  'POST',
-    mode:    'cors',
-    headers: { 'Content-Type': 'text/plain' },
-    body:    JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+async function apiPost(payload = {}, timeout = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const res = await fetch(CONFIG.GAS_URL, {
+      method:  'POST',
+      mode:    'cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body:    JSON.stringify(payload),
+      signal:  controller.signal
+    });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -131,21 +151,23 @@ async function handleLogin() {
   try {
     const res = await apiGet({ action: 'login', cedula, clave });
     if (res.ok) {
-      const session = { cedula, nombre: res.nombre, rol: res.rol };
+      const session = { cedula, nombre: res.nombre, rol: res.rol, authKey: btoa(cedula + ':' + clave) };
       State.session = session;
       saveSession(session);
       initApp();
     } else {
       showToast(res.mensaje || 'Credenciales incorrectas.', 'error');
     }
-  } catch {
+  } catch (err) {
+    // Intento de Login Offline
     const cached = loadSession();
-    if (cached && cached.cedula === cedula) {
+    const currentKey = btoa(cedula + ':' + clave);
+    if (cached && cached.authKey === currentKey) {
       State.session = cached;
-      showToast('Sin conexión – sesión reanudada.', 'info');
+      showToast('Modo offline: Sesión validada localmente.', 'info');
       initApp();
     } else {
-      showToast('Error de conexión. Verifica internet.', 'error');
+      showToast('Sin conexión. No se pudo validar el acceso.', 'error');
     }
   } finally {
     btn.disabled = false;
@@ -159,19 +181,28 @@ async function handleLogin() {
 
 async function loadClientes(forceSync = false) {
   const raw = localStorage.getItem(CONFIG.CLIENTES_CACHE_KEY);
-  if (raw && !forceSync) {
-    const { data, timestamp } = JSON.parse(raw);
-    if (Date.now() - timestamp < CONFIG.CACHE_TTL_MS) { State.clientes = data; return; }
+
+  // 1. Cargar desde cache inmediatamente para que la búsqueda funcione ya
+  if (raw) {
+    try {
+      const { data } = JSON.parse(raw);
+      State.clientes = data;
+    } catch(e) {}
   }
+
+  // 2. Si estamos offline y tenemos datos, no hacemos nada más
+  if (!navigator.onLine && State.clientes.length > 0) return;
+
+  // 3. Intentar actualizar en segundo plano o si se fuerza
   try {
     const res = await apiGet({ action: 'getClientes' });
     if (res.ok && Array.isArray(res.data)) {
       State.clientes = res.data;
       localStorage.setItem(CONFIG.CLIENTES_CACHE_KEY, JSON.stringify({ data: res.data, timestamp: Date.now() }));
+      console.log('Clientes sincronizados:', State.clientes.length);
     }
-  } catch {
-    if (raw) { State.clientes = JSON.parse(raw).data; showToast('Sin conexión – lista local de clientes.', 'info'); }
-    else showToast('No se pudo cargar la lista de clientes.', 'error');
+  } catch (err) {
+    console.warn('No se pudo actualizar la lista de clientes (offline).');
   }
 }
 
