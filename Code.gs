@@ -12,13 +12,11 @@ const SHEET_CLIENTES  = 'Clientes';
 const SHEET_DESPACHOS = 'Despachos';
 const SHEET_CONFIG    = 'Config';
 
-// ─────────────────────────────────────────────────────────
-//  RESPUESTA JSON
-// ─────────────────────────────────────────────────────────
-function jsonResponse(obj) {
-  return ContentService
-    .createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
+// Cache global del Spreadsheet para evitar múltiples llamadas
+const SS = SpreadsheetApp.getActiveSpreadsheet();
+
+function getSheet(name) {
+  return SS.getSheetByName(name) || SS.insertSheet(name);
 }
 
 // ─────────────────────────────────────────────────────────
@@ -66,18 +64,22 @@ function doPost(e) {
 //  LOGIN
 // ─────────────────────────────────────────────────────────
 function handleLogin(cedula, clave) {
-  if (!cedula || !clave)
-    return jsonResponse({ ok: false, mensaje: 'Cédula y clave requeridas.' });
+  if (!cedula || !clave) return jsonResponse({ ok: false, mensaje: 'Cédula y clave requeridas.' });
 
   const data = getSheet(SHEET_USUARIOS).getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    const row = data[i];
-    if (String(row[0]).trim() === cedula && String(row[1]).trim() === clave) {
-      if (String(row[4] ?? 'true').toLowerCase() === 'false')
-        return jsonResponse({ ok: false, mensaje: 'Usuario inactivo. Contacta al administrador.' });
-      return jsonResponse({ ok: true, nombre: String(row[3]).trim(), rol: String(row[2]).trim() });
+  const cedulaStr = String(cedula).trim();
+  const claveStr  = String(clave).trim();
+
+  // Búsqueda rápida en memoria
+  const user = data.find(row => String(row[0]).trim() === cedulaStr && String(row[1]).trim() === claveStr);
+
+  if (user) {
+    if (String(user[4] ?? 'true').toLowerCase() === 'false') {
+      return jsonResponse({ ok: false, mensaje: 'Usuario inactivo.' });
     }
+    return jsonResponse({ ok: true, nombre: String(user[3]).trim(), rol: String(user[2]).trim() });
   }
+
   return jsonResponse({ ok: false, mensaje: 'Cédula o clave incorrecta.' });
 }
 
@@ -258,16 +260,14 @@ function handleGetRegistros(cedula, rol) {
 //  SAVE DESPACHO
 // ─────────────────────────────────────────────────────────
 function handleSaveDespacho(data) {
-  if (!data)               return jsonResponse({ ok: false, mensaje: 'Sin datos.' });
-  if (!data.clienteNombre) return jsonResponse({ ok: false, mensaje: 'Cliente requerido.' });
-  if (!data.facturas)      return jsonResponse({ ok: false, mensaje: 'Factura requerida.' });
+  if (!data) return jsonResponse({ ok: false, mensaje: 'Sin datos.' });
 
-  const sheet   = getSheet(SHEET_DESPACHOS);
-  const id      = 'DSP-' + Utilities.formatDate(new Date(), 'America/Caracas', 'yyyyMMdd') + '-' + sheet.getLastRow();
-  const fecha   = data.fecha || Utilities.formatDate(new Date(), 'America/Caracas', 'dd/MM/yyyy HH:mm:ss');
+  const sheet = getSheet(SHEET_DESPACHOS);
+  const nextRow = sheet.getLastRow() + 1;
+  const id = 'DSP-' + Utilities.formatDate(new Date(), 'America/Caracas', 'yyyyMMdd') + '-' + nextRow;
+  const fecha = data.fecha || Utilities.formatDate(new Date(), 'America/Caracas', 'dd/MM/yyyy HH:mm:ss');
 
-  // ID | Fecha | TranspCedula | TranspNombre | ClienteID | ClienteNombre | RIF | Facturas | Observaciones | Ubicacion
-  const row = [
+  const rowData = [
     id, fecha,
     data.transportistaCedula || '',
     data.transportistaNombre || '',
@@ -279,27 +279,19 @@ function handleSaveDespacho(data) {
     (data.lat && data.lng) ? `${data.lat}, ${data.lng}` : '',
   ];
 
-  sheet.appendRow(row);
-  const newRow = sheet.getLastRow();
+  sheet.appendRow(rowData);
 
-  // Columnas de coordenadas como LINK de Maps (evitamos formulas por errores de locale)
+  // Solo procesar RichText si hay coordenadas (evita llamadas lentas si no es necesario)
   if (data.lat && data.lng) {
     const mapsUrl = `https://www.google.com/maps?q=${data.lat},${data.lng}`;
-    const label   = `${data.lat}, ${data.lng}`;
-    const cell    = sheet.getRange(newRow, 10);
-
     const richText = SpreadsheetApp.newRichTextValue()
-      .setText(label)
+      .setText(`${data.lat}, ${data.lng}`)
       .setLinkUrl(mapsUrl)
       .build();
-
-    cell.setRichTextValue(richText);
-    cell.setFontColor('#003087').setFontLine('underline');
+    sheet.getRange(nextRow, 10).setRichTextValue(richText);
   }
 
-  _styleRow(sheet, newRow, 10);
-  Logger.log('Despacho guardado: ' + id);
-  return jsonResponse({ ok: true, id, mensaje: 'Despacho registrado correctamente.' });
+  return jsonResponse({ ok: true, id });
 }
 
 // ─────────────────────────────────────────────────────────
