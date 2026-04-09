@@ -15,6 +15,7 @@
 const CONFIG = {
   GAS_URL:            'https://script.google.com/macros/s/AKfycbxJCYchEwueAiqfpDkM7YRwQw_ayZt3540cM39UV86s5qylhEzVZCgkXMTcMOOUlwRK5A/exec',
   CLIENTES_CACHE_KEY: 'natulac_clientes_v1',
+  USERS_CACHE_KEY:    'natulac_users_v1',
   SESSION_KEY:        'natulac_session_v1',
   QUEUE_KEY:          'natulac_queue_v1',
   CACHE_TTL_MS:       1000 * 60 * 60 * 6,
@@ -78,7 +79,12 @@ function setBtnLoading(btn, loading, originalHTML) {
 //  API
 // ─────────────────────────────────────────────────────────
 
-async function apiGet(params = {}, timeout = 5000) {
+async function apiGet(params = {}, timeout = 10000) {
+  if (!navigator.onLine) {
+    setOnlineUI(false);
+    throw new Error('offline');
+  }
+
   const url = new URL(CONFIG.GAS_URL);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
 
@@ -88,15 +94,26 @@ async function apiGet(params = {}, timeout = 5000) {
   try {
     const res = await fetch(url.toString(), { method: 'GET', mode: 'cors', signal: controller.signal });
     clearTimeout(timer);
+    if (res.status === 503 || res.status === 504 || res.status === 408) throw new Error('offline');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
+    setOnlineUI(true);
+    return await res.json();
   } catch (err) {
     clearTimeout(timer);
+    if (isOfflineError(err)) {
+      setOnlineUI(false);
+      throw new Error('offline');
+    }
     throw err;
   }
 }
 
-async function apiPost(payload = {}, timeout = 8000) {
+async function apiPost(payload = {}, timeout = 15000) {
+  if (!navigator.onLine) {
+    setOnlineUI(false);
+    throw new Error('offline');
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
 
@@ -109,12 +126,31 @@ async function apiPost(payload = {}, timeout = 8000) {
       signal:  controller.signal
     });
     clearTimeout(timer);
+    if (res.status === 503 || res.status === 504 || res.status === 408) throw new Error('offline');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
+    setOnlineUI(true);
+    return await res.json();
   } catch (err) {
     clearTimeout(timer);
+    if (isOfflineError(err)) {
+      setOnlineUI(false);
+      throw new Error('offline');
+    }
     throw err;
   }
+}
+
+function isOfflineError(err) {
+  const msg = (err.message || '').toLowerCase();
+  const name = (err.name || '');
+  return !navigator.onLine ||
+         name === 'AbortError' ||
+         name === 'TypeError' ||
+         msg.includes('fetch') ||
+         msg.includes('network') ||
+         msg.includes('unexpected token') ||
+         msg.includes('json') ||
+         msg === 'offline';
 }
 
 // ─────────────────────────────────────────────────────────
@@ -124,6 +160,19 @@ async function apiPost(payload = {}, timeout = 8000) {
 function loadSession()  { try { const r = localStorage.getItem(CONFIG.SESSION_KEY); return r ? JSON.parse(r) : null; } catch { return null; } }
 function saveSession(s) { localStorage.setItem(CONFIG.SESSION_KEY, JSON.stringify(s)); }
 function clearSession() { localStorage.removeItem(CONFIG.SESSION_KEY); }
+
+// Cache de usuarios para login offline
+function getUsersCache() { try { const r = localStorage.getItem(CONFIG.USERS_CACHE_KEY); return r ? JSON.parse(r) : {}; } catch { return {}; } }
+function saveUserToCache(cedula, clave, nombre, rol) {
+  const users = getUsersCache();
+  users[cedula] = { clave, nombre, rol };
+  localStorage.setItem(CONFIG.USERS_CACHE_KEY, JSON.stringify(users));
+}
+function checkUserCache(cedula, clave) {
+  const users = getUsersCache();
+  const u = users[cedula];
+  return (u && u.clave === clave) ? { cedula, nombre: u.nombre, rol: u.rol } : null;
+}
 
 function applyRoleUI(session) {
   const isAdmin = session.rol?.toLowerCase() === 'admin';
@@ -151,23 +200,24 @@ async function handleLogin() {
   try {
     const res = await apiGet({ action: 'login', cedula, clave });
     if (res.ok) {
-      const session = { cedula, nombre: res.nombre, rol: res.rol, authKey: btoa(cedula + ':' + clave) };
+      const session = { cedula, nombre: res.nombre, rol: res.rol };
       State.session = session;
       saveSession(session);
+      saveUserToCache(cedula, clave, res.nombre, res.rol); // Guardar para offline
       initApp();
     } else {
       showToast(res.mensaje || 'Credenciales incorrectas.', 'error');
     }
   } catch (err) {
-    // Intento de Login Offline
-    const cached = loadSession();
-    const currentKey = btoa(cedula + ':' + clave);
-    if (cached && cached.authKey === currentKey) {
-      State.session = cached;
-      showToast('Modo offline: Sesión validada localmente.', 'info');
+    // Intento de login offline
+    const offlineUser = checkUserCache(cedula, clave);
+    if (offlineUser) {
+      State.session = offlineUser;
+      saveSession(offlineUser);
+      showToast('Modo offline: sesión iniciada con credenciales guardadas.', 'info');
       initApp();
     } else {
-      showToast('Sin conexión. No se pudo validar el acceso.', 'error');
+      showToast('Sin conexión y no hay credenciales locales para este usuario.', 'error');
     }
   } finally {
     btn.disabled = false;
@@ -332,6 +382,11 @@ async function handleSubmitDespacho() {
   if (!obs)             { showToast('Agrega una observación del despacho.', 'error'); return; }
   if (!facturas.length) { showToast('Ingresa al menos un número de factura.', 'error'); return; }
 
+  if (!State.session) {
+    showToast('Error de sesión. Por favor, reinicia la aplicación.', 'error');
+    return;
+  }
+
   const now   = new Date();
   const fecha = now.toLocaleString('es-VE', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
 
@@ -352,27 +407,25 @@ async function handleSubmitDespacho() {
   };
 
   const btn = document.getElementById('btn-submit');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-ring" style="width:20px;height:20px;border-width:3px;margin:0 auto;display:block;"></span>';
+  const originalHTML = btn.innerHTML;
+  setBtnLoading(btn, true);
 
   try {
-    if (!navigator.onLine) throw new Error('offline');
     const res = await apiPost(payload);
     if (res.ok) {
       showToast('<i class="bi bi-check-circle-fill me-1"></i>Despacho registrado exitosamente.', 'success', 4000);
       resetDespachoForm();
     } else throw new Error(res.mensaje || 'Error del servidor');
   } catch (err) {
-    if (err.message === 'offline' || !navigator.onLine) {
+    if (err.message === 'offline') {
       enqueueOffline(payload);
-      showToast('Sin conexión – guardado localmente. Se enviará cuando vuelva la red.', 'info', 5000);
+      showToast('<b>Modo Offline:</b> Despacho guardado localmente. Se enviará automáticamente al recuperar conexión.', 'info', 6000);
       resetDespachoForm();
     } else {
       showToast(`Error: ${err.message}`, 'error', 5000);
     }
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="bi bi-send-fill me-2"></i>Registrar Despacho';
+    setBtnLoading(btn, false, originalHTML);
   }
 }
 
@@ -389,26 +442,62 @@ function resetDespachoForm() {
 // ─────────────────────────────────────────────────────────
 
 function enqueueOffline(payload) {
-  const raw   = localStorage.getItem(CONFIG.QUEUE_KEY);
-  const queue = raw ? JSON.parse(raw) : [];
-  queue.push({ payload, enqueuedAt: new Date().toISOString() });
-  localStorage.setItem(CONFIG.QUEUE_KEY, JSON.stringify(queue));
+  try {
+    const raw   = localStorage.getItem(CONFIG.QUEUE_KEY);
+    let queue = [];
+    if (raw) {
+      try { queue = JSON.parse(raw); } catch(e) { queue = []; }
+    }
+    if (!Array.isArray(queue)) queue = [];
+
+    queue.push({ payload, enqueuedAt: new Date().toISOString() });
+    localStorage.setItem(CONFIG.QUEUE_KEY, JSON.stringify(queue));
+    console.log('Despacho encolado offline:', payload);
+  } catch (err) {
+    console.error('Error al encolar:', err);
+    showToast('Error crítico: No se pudo guardar localmente.', 'error');
+  }
 }
 
-async function flushOfflineQueue() {
+async function flushOfflineQueue(isManual = false) {
   const raw = localStorage.getItem(CONFIG.QUEUE_KEY);
   if (!raw) return;
-  const queue = JSON.parse(raw);
-  if (!queue.length) return;
-  showToast(`Enviando ${queue.length} despacho(s) pendiente(s)...`, 'info', 3000);
+  let queue = [];
+  try { queue = JSON.parse(raw); } catch(e) { return; }
+  if (!queue || !queue.length) return;
+
+  // Si no hay red, no intentamos procesar para evitar ruido en consola
+  if (!navigator.onLine) return;
+
+  if (isManual) showToast(`Sincronizando ${queue.length} despacho(s)...`, 'info', 2000);
+
   const failed = [];
+  let successCount = 0;
+
   for (const item of queue) {
-    try { const res = await apiPost(item.payload); if (!res.ok) throw new Error(); }
-    catch { failed.push(item); }
+    try {
+      const res = await apiPost(item.payload);
+      if (res && res.ok) {
+        successCount++;
+      } else {
+        failed.push(item);
+      }
+    } catch (err) {
+      failed.push(item);
+    }
   }
+
   localStorage.setItem(CONFIG.QUEUE_KEY, JSON.stringify(failed));
-  if (!failed.length) showToast('Despachos pendientes sincronizados.', 'success');
-  else showToast(`${failed.length} despacho(s) no se pudieron enviar.`, 'error');
+
+  if (successCount > 0) {
+    showToast(`${successCount} despacho(s) sincronizado(s) automáticamente.`, 'success');
+    // Si quedan registros, reintentar pronto
+    if (failed.length > 0) setTimeout(() => flushOfflineQueue(), 5000);
+  }
+
+  if (isManual && failed.length > 0) {
+    showToast(`${failed.length} despacho(s) aún pendientes por enviar.`, 'error');
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -419,8 +508,9 @@ async function loadRegistros() {
   const tbody = document.getElementById('registros-body');
   tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:#8fa8d0;">Cargando...</td></tr>';
   try {
-    const res = await apiGet({ action: 'getRegistros', cedula: State.session.cedula, rol: State.session.rol });
-    if (!res.ok || !Array.isArray(res.data)) throw new Error();
+    // Aumentamos timeout a 20s para admin porque la data puede ser pesada
+    const res = await apiGet({ action: 'getRegistros', cedula: State.session.cedula, rol: State.session.rol }, 20000);
+    if (!res.ok || !Array.isArray(res.data)) throw new Error(res.mensaje || 'Error en formato de datos');
     if (!res.data.length) {
       tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:#8fa8d0;">Sin registros.</td></tr>'; return;
     }
@@ -438,8 +528,9 @@ async function loadRegistros() {
         <td>${r.transportistaNombre||r.transportistaCedula||'–'}</td>
       </tr>`;
     }).join('');
-  } catch {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:#e84545;">Error al cargar registros.</td></tr>';
+  } catch (err) {
+    console.error('Error registros:', err);
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:2rem;color:#e84545;">Error: ${err.message || 'No se pudo cargar la data'}.</td></tr>`;
   }
 }
 
@@ -661,6 +752,7 @@ async function initApp() {
     if (State.geoWatchId) navigator.geolocation.clearWatch(State.geoWatchId);
     State.session = null; State.clientes = [];
     showScreen('screen-login');
+    setupLoginListeners(); // Re-vinculamos eventos para el siguiente login
     document.getElementById('inp-cedula').value = '';
     document.getElementById('inp-clave').value  = '';
   });
@@ -672,9 +764,56 @@ async function initApp() {
 //  ONLINE / OFFLINE
 // ─────────────────────────────────────────────────────────
 
-window.addEventListener('online',  () => { document.getElementById('offline-banner').classList.remove('show'); if (State.session) flushOfflineQueue(); });
-window.addEventListener('offline', () => { document.getElementById('offline-banner').classList.add('show'); });
-if (!navigator.onLine) document.getElementById('offline-banner').classList.add('show');
+function updateOnlineStatus() {
+  setOnlineUI(navigator.onLine);
+}
+
+function setOnlineUI(isOnline) {
+  const banner = document.getElementById('offline-banner');
+  const dot    = document.getElementById('header-conn-status');
+  if (!banner || !dot) return;
+
+  if (isOnline) {
+    dot.innerHTML = '<span style="color:#42ff9b; font-size:1.3rem; cursor:pointer;" title="En línea"><i class="bi bi-wifi"></i></span>';
+    dot.onclick = () => {
+      showToast('Verificando conexión...', 'info', 1000);
+      flushOfflineQueue(true);
+    };
+
+    if (banner.classList.contains('was-offline')) {
+      banner.classList.remove('was-offline');
+      banner.style.background = '#1a6b42';
+      banner.innerHTML = '<i class="bi bi-wifi me-2"></i>Conexión restablecida – Enviando datos pendientes...';
+      banner.classList.add('show');
+      if (State.session) flushOfflineQueue();
+      setTimeout(() => { if (navigator.onLine) banner.classList.remove('show'); }, 4000);
+    } else {
+      banner.classList.remove('show');
+    }
+  } else {
+    dot.innerHTML = '<span style="color:#ff4444; font-size:1.3rem; cursor:pointer; animation: pulse 2s infinite;" title="Sin conexión"><i class="bi bi-wifi-off"></i></span>';
+    dot.onclick = () => showToast('Sin internet. Los datos se enviarán cuando recuperes señal.', 'info');
+    banner.classList.add('was-offline');
+    banner.style.background = '#dc3545';
+    banner.innerHTML = '<i class="bi bi-wifi-off me-2"></i>Modo Offline – Registros guardándose en el teléfono.';
+    banner.classList.add('show');
+  }
+}
+
+// Chequeo de seguridad cada 5 segundos para asegurar que el estado sea correcto
+setInterval(updateOnlineStatus, 5000);
+
+// Sync automático cada 30 segundos si hay conexión
+setInterval(() => {
+  if (navigator.onLine && State.session) flushOfflineQueue();
+}, 30000);
+
+window.addEventListener('online',  () => { console.log('Internet ON'); updateOnlineStatus(); });
+window.addEventListener('offline', () => { console.log('Internet OFF'); updateOnlineStatus(); });
+// Ejecutar al inicio para establecer estado inicial
+document.addEventListener('DOMContentLoaded', () => {
+  updateOnlineStatus();
+});
 
 // ─────────────────────────────────────────────────────────
 //  PWA INSTALL
@@ -715,13 +854,26 @@ if ('serviceWorker' in navigator) {
 //  BOOTSTRAP
 // ─────────────────────────────────────────────────────────
 
+function setupLoginListeners() {
+  const btn = document.getElementById('btn-login');
+  const inp = document.getElementById('inp-clave');
+  if (btn) {
+    // Eliminamos listeners previos para no duplicar
+    btn.replaceWith(btn.cloneNode(true));
+    document.getElementById('btn-login').addEventListener('click', handleLogin);
+  }
+  if (inp) {
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => setLoader(false), 800);
+
+  // Siempre configuramos los listeners de login al arrancar
+  setupLoginListeners();
+
   const session = loadSession();
   if (session) { State.session = session; initApp(); }
-  else {
-    showScreen('screen-login');
-    document.getElementById('btn-login').addEventListener('click', handleLogin);
-    document.getElementById('inp-clave').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
-  }
+  else { showScreen('screen-login'); }
 });
