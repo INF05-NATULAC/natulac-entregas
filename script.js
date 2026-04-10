@@ -30,6 +30,10 @@ const State = {
   currentGeo:      null,
   geoWatchId:      null,
   deferredInstall: null,
+  isOffline:       false,
+  lastOfflineToast: 0,
+  lastStateChange:  Date.now(),
+  consecutiveFailures: 0,
 };
 
 // ─────────────────────────────────────────────────────────
@@ -79,9 +83,8 @@ function setBtnLoading(btn, loading, originalHTML) {
 //  API
 // ─────────────────────────────────────────────────────────
 
-async function apiGet(params = {}, timeout = 10000) {
+async function apiGet(params = {}, timeout = 30000) {
   if (!navigator.onLine) {
-    setOnlineUI(false);
     throw new Error('offline');
   }
 
@@ -94,23 +97,31 @@ async function apiGet(params = {}, timeout = 10000) {
   try {
     const res = await fetch(url.toString(), { method: 'GET', mode: 'cors', signal: controller.signal });
     clearTimeout(timer);
-    if (res.status === 503 || res.status === 504 || res.status === 408) throw new Error('offline');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    if (res.status === 503 || res.status === 504 || res.status === 408) throw new Error('Servidor saturado (503/504). Reintenta.');
+    if (!res.ok) throw new Error(`Error de Servidor (HTTP ${res.status})`);
+
+    const data = await res.json();
+    State.consecutiveFailures = 0;
     setOnlineUI(true);
-    return await res.json();
+    return data;
   } catch (err) {
     clearTimeout(timer);
     if (isOfflineError(err)) {
-      setOnlineUI(false);
+      State.consecutiveFailures++;
+      if (!navigator.onLine || State.consecutiveFailures >= 2) {
+        setOnlineUI(false);
+      }
       throw new Error('offline');
     }
+    if (err.name === 'AbortError') throw new Error('Tiempo de espera agotado. Reintenta.');
+    if (err.name === 'SyntaxError') throw new Error('El servidor envió una respuesta inválida.');
     throw err;
   }
 }
 
-async function apiPost(payload = {}, timeout = 15000) {
+async function apiPost(payload = {}, timeout = 30000) {
   if (!navigator.onLine) {
-    setOnlineUI(false);
     throw new Error('offline');
   }
 
@@ -126,16 +137,25 @@ async function apiPost(payload = {}, timeout = 15000) {
       signal:  controller.signal
     });
     clearTimeout(timer);
-    if (res.status === 503 || res.status === 504 || res.status === 408) throw new Error('offline');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    if (res.status === 503 || res.status === 504 || res.status === 408) throw new Error('Servidor saturado. Reintenta.');
+    if (!res.ok) throw new Error(`Error de Servidor (HTTP ${res.status})`);
+
+    const data = await res.json();
+    State.consecutiveFailures = 0;
     setOnlineUI(true);
-    return await res.json();
+    return data;
   } catch (err) {
     clearTimeout(timer);
     if (isOfflineError(err)) {
-      setOnlineUI(false);
+      State.consecutiveFailures++;
+      if (!navigator.onLine || State.consecutiveFailures >= 2) {
+        setOnlineUI(false);
+      }
       throw new Error('offline');
     }
+    if (err.name === 'AbortError') throw new Error('Tiempo de espera agotado.');
+    if (err.name === 'SyntaxError') throw new Error('Respuesta de servidor inválida.');
     throw err;
   }
 }
@@ -148,8 +168,6 @@ function isOfflineError(err) {
          name === 'TypeError' ||
          msg.includes('fetch') ||
          msg.includes('network') ||
-         msg.includes('unexpected token') ||
-         msg.includes('json') ||
          msg === 'offline';
 }
 
@@ -209,15 +227,18 @@ async function handleLogin() {
       showToast(res.mensaje || 'Credenciales incorrectas.', 'error');
     }
   } catch (err) {
-    // Intento de login offline
+    const isOffline = (err.message === 'offline');
     const offlineUser = checkUserCache(cedula, clave);
-    if (offlineUser) {
+
+    if (isOffline && offlineUser) {
       State.session = offlineUser;
       saveSession(offlineUser);
-      showToast('Modo offline: sesión iniciada con credenciales guardadas.', 'info');
+      showToast('Modo offline: sesión iniciada con credenciales locales.', 'info');
       initApp();
+    } else if (isOffline) {
+      showToast('Sin conexión y no hay datos locales para este usuario.', 'error');
     } else {
-      showToast('Sin conexión y no hay credenciales locales para este usuario.', 'error');
+      showToast(err.message || 'Error de conexión con el servidor.', 'error');
     }
   } finally {
     btn.disabled = false;
@@ -265,14 +286,22 @@ function initAutocomplete() {
   const list   = document.getElementById('autocomplete-list');
   const hidId  = document.getElementById('inp-cliente-id');
   const rifEl  = document.getElementById('inp-rif');
+
+  if (!input || input.dataset.initialized) return;
+  input.dataset.initialized = 'true';
+
   let selectedIdx = -1;
 
   function renderList(q) {
     q = q.toLowerCase().trim();
     list.innerHTML = ''; selectedIdx = -1;
-    if (!q || q.length < 2) { list.classList.remove('open'); return; }
+    if (!q || q.length < 1) { list.classList.remove('open'); return; }
 
-    const matches = State.clientes.filter(c => c.nombre.toLowerCase().includes(q)).slice(0, 10);
+    const matches = State.clientes.filter(c =>
+      (c.nombre || '').toLowerCase().includes(q) ||
+      (c.rif || '').toLowerCase().includes(q)
+    ).slice(0, 15);
+
     if (!matches.length) {
       list.innerHTML = '<div class="autocomplete-empty">Sin resultados</div>';
       list.classList.add('open'); return;
@@ -282,7 +311,8 @@ function initAutocomplete() {
       const item = document.createElement('div');
       item.className = 'autocomplete-item';
       item.dataset.idx = i;
-      item.innerHTML = c.nombre.replace(re, '<mark>$1</mark>');
+      const subtext = c.rif ? ` <small class="text-muted">(${c.rif})</small>` : '';
+      item.innerHTML = c.nombre.replace(re, '<mark>$1</mark>') + subtext;
       item.addEventListener('mousedown', () => select(c));
       list.appendChild(item);
     });
@@ -317,10 +347,12 @@ function initAutocomplete() {
 
 function initFacturas() {
   const container = document.getElementById('facturas-container');
-  let count = 1;
+  const btn = document.getElementById('btn-add-factura');
+  if (!btn || btn.dataset.listener) return;
+  btn.dataset.listener = 'true';
 
-  document.getElementById('btn-add-factura').addEventListener('click', () => {
-    count++;
+  btn.addEventListener('click', () => {
+    const count = container.querySelectorAll('.factura-item').length + 1;
     const wrap = document.createElement('div');
     wrap.className = 'factura-item';
     wrap.innerHTML = `
@@ -369,7 +401,10 @@ function initGeo() {
 // ─────────────────────────────────────────────────────────
 
 function initDespachoForm() {
-  document.getElementById('btn-submit').addEventListener('click', handleSubmitDespacho);
+  const btn = document.getElementById('btn-submit');
+  if (!btn || btn.dataset.listener) return;
+  btn.dataset.listener = 'true';
+  btn.addEventListener('click', handleSubmitDespacho);
 }
 
 async function handleSubmitDespacho() {
@@ -379,7 +414,6 @@ async function handleSubmitDespacho() {
   const facturas  = getFacturas();
 
   if (!cliente)         { showToast('Selecciona un cliente de la lista.', 'error'); return; }
-  if (!obs)             { showToast('Agrega una observación del despacho.', 'error'); return; }
   if (!facturas.length) { showToast('Ingresa al menos un número de factura.', 'error'); return; }
 
   if (!State.session) {
@@ -460,43 +494,66 @@ function enqueueOffline(payload) {
 }
 
 async function flushOfflineQueue(isManual = false) {
+  if (State._isSyncing) return;
   const raw = localStorage.getItem(CONFIG.QUEUE_KEY);
   if (!raw) return;
+
   let queue = [];
   try { queue = JSON.parse(raw); } catch(e) { return; }
   if (!queue || !queue.length) return;
 
-  // Si no hay red, no intentamos procesar para evitar ruido en consola
+  // Si físicamente no hay red, no lo intentamos.
   if (!navigator.onLine) return;
 
+  State._isSyncing = true;
   if (isManual) showToast(`Sincronizando ${queue.length} despacho(s)...`, 'info', 2000);
 
   const failed = [];
   let successCount = 0;
 
-  for (const item of queue) {
+  // Copia de la cola para procesar
+  const processQueue = [...queue];
+
+  for (const item of processQueue) {
     try {
-      const res = await apiPost(item.payload);
+      // Usamos un timeout más corto para el flush automático
+      const res = await apiPost(item.payload, 15000);
       if (res && res.ok) {
         successCount++;
+        // Al tener un éxito real, confirmamos que estamos ONLINE de verdad
+        setOnlineUI(true);
       } else {
         failed.push(item);
       }
     } catch (err) {
       failed.push(item);
+      // Si un envío falla por red/timeout, detenemos el resto para no saturar
+      if (err.message === 'offline') break;
     }
   }
 
-  localStorage.setItem(CONFIG.QUEUE_KEY, JSON.stringify(failed));
+  // Actualizar cola con lo que quedó pendiente (fallidos + no procesados)
+  const remainingCount = processQueue.length - successCount;
+  const remaining = queue.slice(successCount); // Simplificación: asume orden
 
-  if (successCount > 0) {
-    showToast(`${successCount} despacho(s) sincronizado(s) automáticamente.`, 'success');
-    // Si quedan registros, reintentar pronto
-    if (failed.length > 0) setTimeout(() => flushOfflineQueue(), 5000);
+  // Re-validar contra fallidos específicos por si hubo saltos
+  if (failed.length > 0) {
+      localStorage.setItem(CONFIG.QUEUE_KEY, JSON.stringify([...failed, ...queue.slice(processQueue.length)]));
+  } else {
+      localStorage.setItem(CONFIG.QUEUE_KEY, JSON.stringify(queue.slice(successCount)));
   }
 
-  if (isManual && failed.length > 0) {
-    showToast(`${failed.length} despacho(s) aún pendientes por enviar.`, 'error');
+  State._isSyncing = false;
+
+  if (successCount > 0) {
+    showToast(`${successCount} despacho(s) sincronizado(s) exitosamente.`, 'success');
+  }
+
+  // Si aún hay pendientes y seguimos online, reintentar pronto (backoff ligero)
+  const currentQueue = JSON.parse(localStorage.getItem(CONFIG.QUEUE_KEY) || '[]');
+  if (currentQueue.length > 0 && navigator.onLine) {
+    const delay = failed.length > 0 ? 30000 : 60000;
+    setTimeout(() => flushOfflineQueue(), delay);
   }
 }
 
@@ -589,8 +646,6 @@ async function handleSaveCliente() {
       });
       // Recargar lista y caché
       await loadClientesAdmin(true);
-      // Refrescar autocomplete del despacho
-      initAutocomplete();
     } else {
       showToast(res.mensaje || 'No se pudo guardar el cliente.', 'error');
     }
@@ -610,7 +665,6 @@ async function handleDeleteCliente(id, btnEl) {
     if (res.ok) {
       showToast('Cliente eliminado.', 'success');
       await loadClientesAdmin(true);
-      initAutocomplete();
     } else {
       showToast(res.mensaje || 'No se pudo eliminar.', 'error');
       btnEl.disabled = false; btnEl.innerHTML = '<i class="bi bi-trash"></i>';
@@ -713,6 +767,8 @@ async function initApp() {
 
   // Tabs
   document.querySelectorAll('.nav-tab-btn').forEach(btn => {
+    if (btn.dataset.listener) return;
+    btn.dataset.listener = 'true';
     btn.addEventListener('click', () => {
       const tab = btn.dataset.tab;
       showTab(tab);
@@ -723,39 +779,56 @@ async function initApp() {
   });
 
   // Sync clientes
-  document.getElementById('btn-sync')?.addEventListener('click', async () => {
-    const btn = document.getElementById('btn-sync');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-ring" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:.3rem;"></span>Sincronizando…';
-    await loadClientesAdmin(true);
-    initAutocomplete();
-    btn.disabled = false;
-    btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Sincronizar';
-    showToast(`Lista actualizada (${State.clientes.length} clientes).`, 'success');
-  });
+  const btnSync = document.getElementById('btn-sync');
+  if (btnSync && !btnSync.dataset.listener) {
+    btnSync.dataset.listener = 'true';
+    btnSync.addEventListener('click', async () => {
+      btnSync.disabled = true;
+      btnSync.innerHTML = '<span class="spinner-ring" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:.3rem;"></span>Sincronizando…';
+      await loadClientesAdmin(true);
+      btnSync.disabled = false;
+      btnSync.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Sincronizar';
+      showToast(`Lista actualizada (${State.clientes.length} clientes).`, 'success');
+    });
+  }
 
   // Filtro de clientes
-  document.getElementById('filter-clientes')?.addEventListener('input', () => {
-    renderClientesTable(State.clientes);
-  });
+  const filterCli = document.getElementById('filter-clientes');
+  if (filterCli && !filterCli.dataset.listener) {
+    filterCli.dataset.listener = 'true';
+    filterCli.addEventListener('input', () => {
+      renderClientesTable(State.clientes);
+    });
+  }
 
   // Guardar cliente
-  document.getElementById('btn-save-cliente')?.addEventListener('click', handleSaveCliente);
+  const btnSaveCli = document.getElementById('btn-save-cliente');
+  if (btnSaveCli && !btnSaveCli.dataset.listener) {
+    btnSaveCli.dataset.listener = 'true';
+    btnSaveCli.addEventListener('click', handleSaveCliente);
+  }
 
   // Guardar usuario
-  document.getElementById('btn-save-usuario')?.addEventListener('click', handleSaveUsuario);
+  const btnSaveUsr = document.getElementById('btn-save-usuario');
+  if (btnSaveUsr && !btnSaveUsr.dataset.listener) {
+    btnSaveUsr.dataset.listener = 'true';
+    btnSaveUsr.addEventListener('click', handleSaveUsuario);
+  }
 
   // Logout
-  document.getElementById('btn-logout').addEventListener('click', () => {
-    if (!confirm('¿Cerrar sesión?')) return;
-    clearSession();
-    if (State.geoWatchId) navigator.geolocation.clearWatch(State.geoWatchId);
-    State.session = null; State.clientes = [];
-    showScreen('screen-login');
-    setupLoginListeners(); // Re-vinculamos eventos para el siguiente login
-    document.getElementById('inp-cedula').value = '';
-    document.getElementById('inp-clave').value  = '';
-  });
+  const btnLogout = document.getElementById('btn-logout');
+  if (btnLogout && !btnLogout.dataset.listener) {
+    btnLogout.addEventListener('click', () => {
+      if (!confirm('¿Cerrar sesión?')) return;
+      clearSession();
+      if (State.geoWatchId) navigator.geolocation.clearWatch(State.geoWatchId);
+      State.session = null; State.clientes = [];
+      showScreen('screen-login');
+      document.getElementById('inp-cedula').value = '';
+      document.getElementById('inp-clave').value  = '';
+    });
+    btnLogout.dataset.listener = 'true';
+  }
 
   flushOfflineQueue();
 }
@@ -765,7 +838,15 @@ async function initApp() {
 // ─────────────────────────────────────────────────────────
 
 function updateOnlineStatus() {
-  setOnlineUI(navigator.onLine);
+  // Si el navegador dice que NO hay red física, estamos offline.
+  if (!navigator.onLine) {
+    setOnlineUI(false);
+  }
+  // Si hay red física pero la app está en modo offline (por fallo de servidor),
+  // NO forzamos el estado a online. Esperamos a que una API tenga éxito.
+  else if (!State.isOffline) {
+    setOnlineUI(true);
+  }
 }
 
 function setOnlineUI(isOnline) {
@@ -773,43 +854,82 @@ function setOnlineUI(isOnline) {
   const dot    = document.getElementById('header-conn-status');
   if (!banner || !dot) return;
 
-  if (isOnline) {
+  const targetOffline = !(isOnline && navigator.onLine);
+
+  // Si el estado no ha cambiado, no hacemos nada
+  if (State.isOffline === targetOffline) return;
+
+  const now = Date.now();
+  const timeSinceLastChange = now - State.lastStateChange;
+
+  State.isOffline = targetOffline;
+  State.lastStateChange = now;
+  console.log(`[Status Change] Offline: ${State.isOffline} (after ${timeSinceLastChange}ms)`);
+
+  if (State.isOffline) {
+    // --- MODO OFFLINE ---
+    dot.innerHTML = '<span style="color:#ff4444; font-size:1.3rem; cursor:pointer; animation: pulse 2s infinite;" title="Sin conexión"><i class="bi bi-wifi-off"></i></span>';
+    dot.onclick = () => showToast('Sin conexión al servidor.', 'info');
+
+    banner.classList.add('was-offline', 'show');
+    banner.style.background = '#dc3545';
+    banner.innerHTML = '<i class="bi bi-wifi-off me-2"></i>Modo Offline – Los datos se guardarán localmente';
+
+    // EVITAR REPETICIÓN: Solo mostrar el toast si llevábamos un tiempo estable y han pasado 60s
+    if (timeSinceLastChange > 15000 && (now - State.lastOfflineToast > 60000)) {
+      showToast('Se ha perdido la conexión. Entrando en modo offline.', 'error', 4000);
+      State.lastOfflineToast = now;
+    }
+  } else {
+    // --- MODO ONLINE ---
+    State.consecutiveFailures = 0; // Reset por si acaso
     dot.innerHTML = '<span style="color:#42ff9b; font-size:1.3rem; cursor:pointer;" title="En línea"><i class="bi bi-wifi"></i></span>';
     dot.onclick = () => {
-      showToast('Verificando conexión...', 'info', 1000);
+      showToast('Conexión estable.', 'info', 1000);
       flushOfflineQueue(true);
     };
 
     if (banner.classList.contains('was-offline')) {
-      banner.classList.remove('was-offline');
       banner.style.background = '#1a6b42';
-      banner.innerHTML = '<i class="bi bi-wifi me-2"></i>Conexión restablecida – Enviando datos pendientes...';
+      banner.innerHTML = '<i class="bi bi-wifi me-2"></i>Conexión restablecida – Sincronizando datos...';
       banner.classList.add('show');
-      if (State.session) flushOfflineQueue();
-      setTimeout(() => { if (navigator.onLine) banner.classList.remove('show'); }, 4000);
+
+      if (State.session) setTimeout(() => flushOfflineQueue(), 500);
+
+      setTimeout(() => {
+        if (!State.isOffline) {
+          banner.classList.remove('show');
+          setTimeout(() => {
+             if (!State.isOffline) banner.classList.remove('was-offline');
+          }, 15000);
+        }
+      }, 4000);
     } else {
       banner.classList.remove('show');
     }
-  } else {
-    dot.innerHTML = '<span style="color:#ff4444; font-size:1.3rem; cursor:pointer; animation: pulse 2s infinite;" title="Sin conexión"><i class="bi bi-wifi-off"></i></span>';
-    dot.onclick = () => showToast('Sin internet. Los datos se enviarán cuando recuperes señal.', 'info');
-    banner.classList.add('was-offline');
-    banner.style.background = '#dc3545';
-    banner.innerHTML = '<i class="bi bi-wifi-off me-2"></i>Modo Offline – Registros guardándose en el teléfono.';
-    banner.classList.add('show');
   }
 }
 
-// Chequeo de seguridad cada 5 segundos para asegurar que el estado sea correcto
-setInterval(updateOnlineStatus, 5000);
+// Chequeo de seguridad cada 3 segundos para asegurar que el estado sea correcto
+setInterval(updateOnlineStatus, 3000);
 
 // Sync automático cada 30 segundos si hay conexión
 setInterval(() => {
   if (navigator.onLine && State.session) flushOfflineQueue();
 }, 30000);
 
-window.addEventListener('online',  () => { console.log('Internet ON'); updateOnlineStatus(); });
-window.addEventListener('offline', () => { console.log('Internet OFF'); updateOnlineStatus(); });
+window.addEventListener('online',  () => {
+  console.log('Hardware Online');
+  if (State.isOffline && State.session) {
+    // Intentamos sincronizar inmediatamente para validar la conexión real
+    flushOfflineQueue();
+  }
+  updateOnlineStatus();
+});
+window.addEventListener('offline', () => {
+  console.log('Internet OFF');
+  setOnlineUI(false);
+});
 // Ejecutar al inicio para establecer estado inicial
 document.addEventListener('DOMContentLoaded', () => {
   updateOnlineStatus();
