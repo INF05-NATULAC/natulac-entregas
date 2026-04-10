@@ -1,10 +1,12 @@
-const CACHE_NAME = 'natulac-v1.2';
+const CACHE_NAME = 'natulac-v1.3';
 const ASSETS = [
   './',
   './index.html',
   './script.js',
-  'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css',
-  'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css',
+  './icon.png',
+  './manifest.json',
+  'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css',
+  'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css',
   'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Kanit:wght@600&family=Syne:wght@700;800&display=swap'
 ];
 
